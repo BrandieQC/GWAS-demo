@@ -134,6 +134,6 @@ head(S_tort_annotated)
 ```
 
 ```{r}
-write.csv(S_tort_annotated, here("output", "S_tort_YO1_2-1_Hap1_annotated.csv"))
+write.csv(S_tort_annotated, here("GWAS-traditional", "output", "S_tort_YO1_2-1_Hap1_annotated.csv"))
 
 ```
