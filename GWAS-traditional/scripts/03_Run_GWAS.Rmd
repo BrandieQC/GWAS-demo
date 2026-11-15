@@ -28,64 +28,74 @@ snp_dir <- "/analyzed_data/GWAS_workshop/data/filtered_snps"
 
 ### SNP data
 
-```{r}
+```{r, eval = FALSE}
 geno <- readPLINK(
-  bed = file.path(snp_dir, "WL2_2025_merge_filtered.bed")
+  bed = file.path(snp_dir, "WL2_2025_final_gwas_plink.bed")
 )
 # will also read the .bim and .fam files
 
 # edit names to match format in phenotype data
 rownames(geno$markers) <- str_remove(rownames(geno$markers), "WL2_.*_.*_")
 
-# impute missing marker data and clean up the snp matrix
-# this probably should be run with the beagle method, but for time consideration, using the "random" method
-# this is memory intensive (~ 35GB)
+# code markers into 0,1,2.  Don't need to impute, already done with BEAGLE
+# This is memory intensive (35GB)
+geno <- codeMarkers(geno, impute = FALSE)
 
-# 2 minutes
-
-# system.time(geno <-  codeMarkers(geno) )
-
-# below ran overnight and did not finish
- system.time(geno <- codeMarkers(geno, imputeType = "beagle"))
- saveRDS(geno, here("GWAS-traditional", "data", "WL2-2025-geno-beagle.Rds"))
-            
 str(geno)
 ```
 
 ### Kinship and PCs
 
 Kinship
+
+Compute Leave One Chromosome Out (LOCO) Kinship Matrices Using Strictly Pruned SNPs (r2 <= 0.2)
+
+```{r, eval = FALSE}
+pruned_kin_snps <- readLines("WL2_2025_snps_for_kin_pca.txt")
+chroms <- sort(unique(geno$map$chr))
+loco_kin_list <- list()
+
+for (chr in chroms) {
+  # Select SNPs NOT on the current chromosome
+  snps_other_chrs <- rownames(geno$map)[geno$map$chr != chr]
+  
+  # Intersect with the strict LD-pruned list
+  snps_to_use <- intersect(snps_other_chrs, pruned_kin_snps)
+  
+  # Compute VanRaden kinship matrix for this chromosome
+  loco_kin_list[[as.character(chr)]] <- kinship(
+    X = geno$markers[, snps_to_use],
+    method = "vanRaden"
+  )
+}
+
+# Attach the named list of LOCO kinship matrices to geno
+geno <- createGData(gData = geno, kin = loco_kin_list)
+
+# save it
+saveRDS(geno, file.path(snp_dir, "WL2_2025_gdata.Rds" ))
+```
+
+Load gData
 ```{r}
-kinship_names <- read_tsv(file.path(snp_dir, "WL2_2025_merge_filtered_kinship.rel.id"),
-    col_names = c("rownames", "colnames")) %>% 
-  mutate(across(everything(),  \(x) str_remove(x, "WL2_.*_.*_")) # match phenotype naming format
-)
-
-all(kinship_names$rownames == kinship_names$colnames) # TRUE
-
-kinship_matrix <- read_table(
-    file.path(snp_dir, "WL2_2025_merge_filtered_kinship.rel"),
-    col_names = FALSE) %>% 
-    as.matrix()
-
-dimnames(kinship_matrix) <- list(kinship_names$rownames, kinship_names$colnames)
-
-kinship_matrix[1:5, 1:5]
+geno <- readRDS(file.path(snp_dir, "WL2_2025_gdata.Rds" ))
 ```
 
 PCs
 ```{r}
 PCs_pct_var <- read_table(
-        file.path(snp_dir, "WL2_2025_merge_filtered_pca.eigenval"),
+        file.path(snp_dir, "WL2_2025_gwas_pca.eigenval"),
         col_names = "Pct_Var") %>% 
       mutate(PC= str_c("PC", 1:n()))
  
  PCs_pct_var
 ```
+Adds up to more than 100%...so isn't really pct var
+
 
 ```{r}
 PCs <- read_table(
-        file = file.path(snp_dir, "WL2_2025_merge_filtered_pca.eigenvec"),
+        file = file.path(snp_dir, "WL2_2025_gwas_pca.eigenvec"),
         col_names = c("Unique.ID", "ID1", PCs_pct_var$PC))  %>%
       select(-ID1) %>% # remove duplicate column of names
       mutate(Unique.ID = str_remove(Unique.ID, "WL2_.*_.*_")) # match phenotype format
@@ -167,7 +177,6 @@ all(rownames(covar)== rownames(geno$markers))
 
 
 geno_pheno <- createGData(gData = geno,
-                          kin = kinship_matrix,
                           pheno = size_2025_06_09_pheno,
                           covar = covar)
                           
@@ -193,7 +202,7 @@ To see what the GWAS looks like with no correction we will give statgenGWAS a ma
 
 ```{r}
 #define our zero matrix
-nullmat <- matrix(0, ncol=ncol(kinship_matrix),nrow=nrow(kinship_matrix), dimnames = dimnames(kinship_matrix))
+nullmat <- matrix(0, ncol=nrow(PCs),nrow=nrow(PCs), dimnames = dimnames(PCs$Unique.ID))
 
 # run the GWAS
 ## 2.5 minutes
