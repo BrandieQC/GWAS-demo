@@ -202,7 +202,7 @@ To see what the GWAS looks like with no correction we will give statgenGWAS a ma
 
 ```{r}
 #define our zero matrix
-nullmat <- matrix(0, ncol=nrow(PCs),nrow=nrow(PCs), dimnames = dimnames(PCs$Unique.ID))
+nullmat <- matrix(0, ncol=nrow(PCs),nrow=nrow(PCs), dimnames = list(PCs$Unique.ID, PCs$Unique.ID))
 
 # run the GWAS
 ## 2.5 minutes
