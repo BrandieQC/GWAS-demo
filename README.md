@@ -13,7 +13,7 @@ Click `By Image` and search for `IntBio-2026-image`, click `Create Instance`
 
 Choose a name e.g. `Julin-GWAS` 
 
-Choose flavor `m3.medium`
+Choose flavor `m3.large`
 
 Select Custom Disk Size of `100GB`
 
