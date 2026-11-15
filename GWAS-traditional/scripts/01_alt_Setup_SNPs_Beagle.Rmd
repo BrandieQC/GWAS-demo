@@ -1,0 +1,58 @@
+Download Beagle 4.1 (note: later versions do not use GL scores, so 4.1 is best for low coveratge data)
+```{bash}
+cd /usr/local/bin
+sudo wget https://faculty.washington.edu/browning/beagle/beagle.27Jan18.7e1.jar
+echo -e "\n## variable for path to beagle \nexport BEAGLE4_1=/usr/local/bin/beagle.27Jan18.7e1.jar" >> ~/.bashrc
+
+tail ~/.bashrc
+source ~/.bashrc
+```
+
+## Use Beagle for imputation:
+
+First convert bcf to vcf for beagle
+```{bash}
+SNPDIR=/analyzed_data/GWAS_workshop/data/filtered_snps
+
+bcftools view $SNPDIR/../WL2_2025_Stor_combined.bcf -Oz -o $SNPDIR/WL2_2025_Stor_combined.vcf.gz
+```
+
+Index vcf and get chromosome names
+```{bash}
+bcftools index --threads 4 "$SNPDIR/WL2_2025_Stor_combined.vcf.gz" # only decompression is multithreaded
+bcftools index -s "$SNPDIR/WL2_2025_Stor_combined.vcf.gz" | cut -f 1 > "$SNPDIR/chrom_list.txt"
+```
+
+Loop through the chromosomes and do imputation
+```{bash}
+mkdir -p beagle4_out
+
+for chr in $(cat "$SNPDIR/chrom_list.txt"); do
+    echo "=========================================="
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] START: ${chr}"
+        java -Xmx48g -jar "$BEAGLE4_1" \
+        gl="$SNPDIR/WL2_2025_Stor_combined.vcf.gz" \
+        chrom=${chr} \
+        out=beagle4_out/${chr}_imputed \
+        nthreads=14 \
+        ne=10000
+
+    bcftools index beagle4_out/${chr}_imputed.vcf.gz
+
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] END:   ${chr}"
+    echo "=========================================="
+done
+
+```
+
+Subset bam for easier viewing in IGV
+```
+BAMDIR=/analyzed_data/GWAS_workshop/data
+
+samtools view -@ 2 -b \
+    --subsample 0.10 --subsample-seed 42 \
+    -o $BAMDIR/WL2_2025_merged_subset.bam $BAMDIR/WL2_2025_merged.bam
+
+samtools index $BAMDIR/WL2_2025_merged_subset.bam
+
+```
