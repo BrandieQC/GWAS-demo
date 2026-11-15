@@ -45,6 +45,92 @@ done
 
 ```
 
+
+## Filter each chromosome for imputation quality
+```bash
+cd /analyzed_data/GWAS_workshop/data/filtered_snps
+for chr in $(cat chrom_list.txt); do
+    bcftools view -i 'INFO/AR2 >= 0.8' beagle4_out/${chr}_imputed.vcf.gz \
+        -Oz -o beagle4_out/${chr}_filtered.vcf.gz
+    bcftools index beagle4_out/${chr}_filtered.vcf.gz
+done
+```
+
+## filter for LD
+```bash
+mkdir -p plink_chr
+
+cat chrom_list.txt | xargs -P 8 -I {} bash -c '
+    chr="{}"
+    echo "[$(date "+%H:%M:%S")] Processing ${chr}..."
+
+    # 1. Convert filtered chromosome VCF to binary PLINK (.bed/.bim/.fam)
+    plink1.9 --vcf beagle4_out/${chr}_filtered.vcf.gz \
+             --make-bed \
+             --allow-extra-chr \
+             --double-id \
+             --set-missing-var-ids @:# \
+             --threads 1 \
+             --out plink_chr/${chr} > /dev/null
+
+    # 2. Strict pruning (r2 <= 0.2) for PCA and LOCO kinship matrices
+    plink1.9 --bfile plink_chr/${chr} \
+             --indep-pairwise 50 10 0.2 \
+             --allow-extra-chr \
+             --threads 1 \
+             --out plink_chr/${chr}_kin_pca > /dev/null
+
+    # 3. Permissive pruning (r2 <= 0.81) for GWAS association testing
+    plink1.9 --bfile plink_chr/${chr} \
+             --indep-pairwise 1000 50 0.81 \
+             --allow-extra-chr \
+             --threads 1 \
+             --out plink_chr/${chr}_gwas > /dev/null
+
+    echo "[$(date "+%H:%M:%S")] Finished ${chr}"
+'
+
+
+```
+
+Merge together
+```bash
+# 1. Combine per-chromosome SNP lists into two genome-wide text files
+cat plink_chr/*_kin_pca.prune.in > snps_for_kin_pca.txt
+cat plink_chr/*_gwas.prune.in > snps_for_gwas.txt
+
+echo "Strict SNPs (Kinship/PCA): $(wc -l < snps_for_kin_pca.txt)"
+echo "Permissive SNPs (GWAS):    $(wc -l < snps_for_gwas.txt)"
+
+# 2. Merge all full chromosomes into one temporary genome-wide PLINK dataset
+awk '{print "plink_chr/"$1}' chrom_list.txt > plink_merge_list.txt
+plink1.9 --merge-list plink_merge_list.txt \
+         --make-bed \
+         --allow-extra-chr \
+         --out all_merged_plink
+
+# 3. Create your final GWAS PLINK dataset containing only the r2 <= 0.81 SNPs
+plink1.9 --bfile all_merged_plink \
+         --extract snps_for_gwas.txt \
+         --make-bed \
+         --allow-extra-chr \
+         --out final_gwas_plink
+
+# 4. Run PCA using only the strict r2 <= 0.2 SNPs
+plink1.9 --bfile all_merged_plink \
+         --extract snps_for_kin_pca.txt \
+         --pca 10 \
+         --allow-extra-chr \
+         --out gwas_pca
+
+```
+
+
+
+
+
+
+
 Subset bam for easier viewing in IGV
 ```
 BAMDIR=/analyzed_data/GWAS_workshop/data
