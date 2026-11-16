@@ -250,6 +250,8 @@ summary(gwas.PCA)
 plot(gwas.PCA, plotType = "qq")
 
 plot(gwas.PCA, plotType = "manhattan")
+
+saveRDS(gwas.PCA, file = here("GWAS-traditional", "output", "l2.height.2025.06.09.gwas.pca.Rds"))
 ```
 
 ### Kinship Matrix
@@ -280,9 +282,9 @@ plot(gwas.K, plotType = "manhattan", ggtitle = "Height--Kinship Correction")
 system.time(
   gwas.K.pca <- runSingleTraitGwas(gData = geno_pheno,
                              traits = "l2.height.cm",
-                             covar = c("PC1", "PC2", "PC3", "PC4", "PC5",
+                             covar = c("PC1", "PC2", "PC3", "PC4", "PC5"),
                              GLSMethod = "multi")
-  )
+  
 )
 ```
 
