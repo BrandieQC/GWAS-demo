@@ -1,0 +1,65 @@
+---
+author: Julin Maloof
+date: 2026-11-16
+output: html_document
+---
+
+Script to annotate significant GWAS snps
+
+```{r}
+library(tidyverse)
+library(rtracklayer)
+library(GenomicRanges)
+library(statgenGWAS)
+library(here)
+```
+
+## Data loading
+```{r}
+annotation <- read_csv("/analyzed_data/GWAS_workshop/data/S_tort_YO1_2-1_Hap1_annotated.csv.gz")
+head(annotation)
+```
+
+Convert annotations to genomic ranges.
+```{r}
+annotation_gr <- makeGRangesFromDataFrame(
+	as.data.frame(annotation),
+	seqnames.field = "chrom",
+	keep.extra.columns = TRUE
+)
+annotation_gr
+```
+
+Get sig SNPs
+```{r}
+l2_height_GWAS <- readRDS(here("GWAS-traditional", "output", "l2.height.2025.06.09.gwas.pca.Rds" ))
+l2_height_sig_snps <- l2_height_GWAS$signSnp[[1]]
+l2_height_sig_snps
+```
+
+## Find genes overlapping significant SNPs
+
+SNPs are treated as single-base positions. Need to convert chromosomes names.  Should check with Rishav about this.
+
+```{r}
+l2_height_snp_gr <- GRanges(
+	seqnames = sprintf("Chr%02d", as.integer(as.character(l2_height_sig_snps$chr))),
+	ranges = IRanges(start = l2_height_sig_snps$pos, width = 1)
+)
+
+l2_height_overlaps <- findOverlaps(l2_height_snp_gr, annotation_gr, maxgap = 0, ignore.strand = TRUE)
+gene_info <- as_tibble(annotation_gr) %>%
+	rename_with(~ paste0("gene_", .x))
+
+l2_height_snp_gene_overlaps <- bind_cols(
+	as_tibble(l2_height_sig_snps)[queryHits(l2_height_overlaps), ],
+	gene_info[subjectHits(l2_height_overlaps), ]
+)
+l2_height_snp_gene_overlaps
+```
+Note: if you want to include SNPs near a genes, increase maxgap
+
+```{r}
+l2_height_snp_gene_overlaps %>%
+    select(snp, chr, pos, allFreq,pValue, gene_AGI, gene_At_symbol, gene_At_full_name, gene_At_short_description, gene_At_Curator_summary) %>% View()
+```

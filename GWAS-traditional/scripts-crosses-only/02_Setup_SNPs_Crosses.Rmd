@@ -1,0 +1,94 @@
+This script assumes BEAGLE has already been run to impute missing SNPs.
+
+Here we define a list of plants that are from crosses, rather than parent populations, prune the SNP list to just include those plants, build PCs from the pruned list, etc.
+
+```{r}
+library(tidyverse)
+library(here)
+```
+
+## create a PLINK keep file for the plants we want to keep
+
+```{r}
+fam_all <- read_delim("/analyzed_data/GWAS_workshop/data/filtered_snps/WL2_2025_all_merged_plink.fam", col_names = FALSE) %>% 
+    mutate(Unique.ID = str_remove(X1, "WL2_.*_.*_"))
+
+metadata_cross <- read_tsv("/analyzed_data/GWAS_workshop/data/WL2_2025_geno_metadata.tsv",
+    col_types = "cc", col_select = c(Unique.ID, Type)) %>%
+    filter(Type != "Parent")
+
+fam_cross <- fam_all %>% semi_join(metadata_cross) %>% select(-Unique.ID)
+
+write_delim(fam_cross, "/analyzed_data/GWAS_workshop/data/filtered_snps/WL2_2025_crosses_keep.txt", delim = " ", col_names = FALSE)
+```
+
+
+## subset to keep crosses and then filter for LD
+```bash
+cd /analyzed_data/GWAS_workshop/data/filtered_snps
+
+mkdir -p WL2_2025_plink_chr_crosses
+
+cat chrom_list.txt | xargs -P 8 -I {} bash -c '
+    chr="{}"
+    echo "[$(date "+%H:%M:%S")] Processing ${chr}..."
+
+    # 1. Convert filtered chromosome VCF to binary PLINK (.bed/.bim/.fam)
+    plink1.9 --vcf beagle4_out/${chr}_filtered.vcf.gz \
+             --keep WL2_2025_crosses_keep.txt \
+             --make-bed \
+             --allow-extra-chr \
+             --double-id \
+             --set-missing-var-ids @:# \
+             --threads 1 \
+             --out WL2_2025_plink_chr_crosses/${chr} > /dev/null
+
+    # 2. Strict pruning (r2 <= 0.25) for PCA and LOCO kinship matrices
+    plink1.9 --bfile WL2_2025_plink_chr_crosses/${chr} \
+             --indep-pairwise 50 10 0.25 \
+             --allow-extra-chr \
+             --threads 1 \
+             --out WL2_2025_plink_chr_crosses/${chr}_kin_pca > /dev/null
+
+    # 3. Permissive pruning (r2 <= 0.81) for GWAS association testing
+    plink1.9 --bfile WL2_2025_plink_chr_crosses/${chr} \
+             --indep-pairwise 1000 50 0.81 \
+             --allow-extra-chr \
+             --threads 1 \
+             --out WL2_2025_plink_chr_crosses/${chr}_gwas > /dev/null
+
+    echo "[$(date "+%H:%M:%S")] Finished ${chr}"
+'
+```
+
+Merge together
+```bash
+# 1. Combine per-chromosome SNP lists into two genome-wide text files
+cat WL2_2025_plink_chr_crosses/*_kin_pca.prune.in > WL2_2025_crosses_snps_for_kin_pca.txt
+cat WL2_2025_plink_chr_crosses/*_gwas.prune.in > WL2_2025_crosses_snps_for_gwas.txt
+
+echo "Strict SNPs (Kinship/PCA): $(wc -l < WL2_2025_crosses_snps_for_kin_pca.txt)"
+echo "Permissive SNPs (GWAS):    $(wc -l < WL2_2025_crosses_snps_for_gwas.txt)"
+
+# 2. Merge all full chromosomes into one temporary genome-wide PLINK dataset
+awk '{print "WL2_2025_plink_chr_crosses/"$1}' chrom_list.txt > plink_merge_list_crosses.txt
+plink1.9 --merge-list plink_merge_list_crosses.txt \
+         --make-bed \
+         --allow-extra-chr \
+         --out WL2_2025_crosses_all_merged_plink
+
+# 3. Create  final GWAS PLINK dataset containing only the r2 <= 0.81 SNPs
+plink1.9 --bfile WL2_2025_crosses_all_merged_plink \
+         --extract WL2_2025_crosses_snps_for_gwas.txt \
+         --make-bed \
+         --allow-extra-chr \
+         --out WL2_2025_crosses_final_gwas_plink
+
+# 4. Run PCA using only the strict r2 <= 0.25 SNPs
+plink1.9 --bfile WL2_2025_crosses_all_merged_plink \
+         --extract WL2_2025_crosses_snps_for_kin_pca.txt \
+         --pca 10 \
+         --allow-extra-chr \
+         --out WL2_2025_crosses_gwas_pca
+
+```
