@@ -12,7 +12,7 @@ knitr::opts_chunk$set(eval = TRUE)
 
 We will use StatgenGWAS to perform a GWAS.
 
-Here we only use the crossed individuals (F1 and F2), not the individual crosses
+Here we only use the crossed individuals (F1 and F2), not the individual parents
 
 ## Load libraries
 
