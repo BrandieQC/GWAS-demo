@@ -61,13 +61,13 @@ Compare hits vs queries
 cd /analyzed_data/GWAS_workshop/data/
 grep -c ">" S_tort_YO1_2_1.HAP1.transcripts.fasta # total number of query sequences
 ```
-29159 sequences in query
+43115 sequences in query
 
 ```{r}
 s_tort_blast %>% pull(query) %>% unique %>% length # total number queries with a hit
 ```
 
-28079 of 29159 queries had a hit.
+41490 of 43115 queries had a hit.
 
 filter to retain best hit
 ```{r}
@@ -81,7 +81,7 @@ s_tort_blast_best <- s_tort_blast_best %>% group_by(query) %>%
   filter(row_number()==1) # and finally just choose the first one if anything is left.
 s_tort_blast_best
 ```
-
+41480
 
 Add annotations from TAIR
 
@@ -117,23 +117,26 @@ Now add location information
 
 
 ```{r}
-gff <- import("/Users/jmaloof/Sequences/ref_genomes/B_rapa/genome/V3.0/Brapa_genome_v3.0_genes.gff3.gz")
-gff <- gff[gff$type=="mRNA",]
+gff <- import("/analyzed_data/GWAS_workshop/data/S_tort_YO1_2_1.HAP1.helixer.gff3")
+gff <- gff[gff$type=="gene",]
 gff <- as_tibble(gff) %>%
-  mutate(geneID=str_extract(ID,"Bra.*$")) %>%
-  dplyr::select(geneID, chrom=seqnames, start,end)
+  dplyr::select(geneID=ID, chrom=seqnames, start,end)
 head(gff)
 ```
 
 
 ```{r}
-S_tort_annotated <- s_tort_blast_best %>% left_join(gff,by = c("query" = "geneID")) %>%
+S_tort_annotated <- s_tort_blast_best %>% 
+  mutate(geneID = str_remove(query, "\\.[0-9]")) %>%
+  left_join(gff,by = "geneID") %>%
   dplyr::select(name=query, chrom, start, end, subject, AGI, matches("At_"), perc_ID, aln_length, mismatch, gap_open, qstart, qend, sstart, send, eval, score) %>%
   arrange(chrom, start)
 head(S_tort_annotated)
+tail(S_tort_annotated)
+
 ```
 
 ```{r}
-write.csv(S_tort_annotated, here("GWAS-traditional", "output", "S_tort_YO1_2-1_Hap1_annotated.csv"))
+write.csv(S_tort_annotated, "/analyzed_data/GWAS_workshop/data/S_tort_YO1_2-1_Hap1_annotated.csv.gz")
 
 ```

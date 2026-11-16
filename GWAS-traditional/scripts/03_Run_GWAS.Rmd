@@ -260,8 +260,8 @@ An alternative strategy for population structure correction is to use a kinship 
 # run the GWAS
 system.time(
 gwas.K <- runSingleTraitGwas(gData = geno_pheno,
-                             traits = "l2.height.cm")
-                             # since we have a kinship matrix in gData that will be used
+                             traits = "l2.height.cm",
+                             GLSMethod = "multi") # Use LOCO kinship matrices
 )
 ```
 
@@ -280,7 +280,8 @@ plot(gwas.K, plotType = "manhattan", ggtitle = "Height--Kinship Correction")
 system.time(
   gwas.K.pca <- runSingleTraitGwas(gData = geno_pheno,
                              traits = "l2.height.cm",
-                             covar = c("PC1", "PC2", "PC3", "PC4", "PC5")
+                             covar = c("PC1", "PC2", "PC3", "PC4", "PC5",
+                             GLSMethod = "multi")
   )
 )
 ```
@@ -299,9 +300,9 @@ plot(gwas.K.pca, plotType = "manhattan", ggtitle = "Height--Kinship + PCA Correc
 system.time(
   gwas.K.pca.bed <- runSingleTraitGwas(gData = geno_pheno,
                              traits = "l2.height.cm",
-                             covar = c("bed", "PC1", "PC2", "PC3", "PC4", "PC5")
+                             covar = c("bed", "PC1", "PC2", "PC3", "PC4", "PC5"),
+                             GLSMethod = "multi")
   )
-)
 ```
 
 ```{r}
@@ -327,6 +328,12 @@ In this table, some of the column names should be obvious. Here are some of the 
 * RLR2: likelihood-ratio-based R<sup>2</sup> as defined in Sun et al. (2010)
 * LOD: -log10(P) (which isn't a true LOD score...)
 * propSnpVar: of the total variance in the trait, what proportion is "explained" by this SNP
+
+## are these SNPs near a gene?
+
+```{r}
+annotation <- read_csv("/analyzed_data/GWAS_workshop/data/S_tort_YO1_2-1_Hap1_annotated.csv.gz")
+```
 
 
 ## Next steps
