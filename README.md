@@ -9,7 +9,7 @@ Login and select the IntDemo allocation
 
 Click `Create > Instance` on the right-hand side
 
-Click `By Image` and search for `IntBio-2026-image`, click `Create Instance` 
+Click `By Image` and search for `IntBio-2026-image-V2`, click `Create Instance` 
 
 Choose a name e.g. `Julin-GWAS` 
 
