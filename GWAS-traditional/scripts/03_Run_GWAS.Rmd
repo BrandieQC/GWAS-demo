@@ -205,7 +205,7 @@ To see what the GWAS looks like with no correction we will give statgenGWAS a ma
 nullmat <- matrix(0, ncol=nrow(PCs),nrow=nrow(PCs), dimnames = list(PCs$Unique.ID, PCs$Unique.ID))
 
 # run the GWAS
-## 2.5 minutes
+## 5 minutes
 system.time(gwas.noCorrection <- runSingleTraitGwas(gData = geno_pheno,
                                        traits = "l2.height.cm",
                                        kin = nullmat)
