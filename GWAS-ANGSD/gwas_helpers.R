@@ -3,6 +3,9 @@
 
 suppressPackageStartupMessages(library(tidyverse))
 
+# Write a phenotype file for ANGSD
+write_pheno <- function(x, file) writeLines(ifelse(is.na(x), "-999", sprintf("%.6f", x)), file)
+
 # Read an ANGSD .lrt0.gz file. Sites ANGSD skipped (LRT = -999) are dropped.
 # logp is -log10(p) from a 1-df chi-square, computed on the log scale.
 read_lrt <- function(file) {
@@ -64,3 +67,33 @@ plot_qq <- function(runs) {
     theme_classic(base_size = 13) +
     theme(legend.position = "bottom", legend.direction = "vertical")
 }
+
+plot_qq1 <- function(d, run_name = "GWAS") {
+  n <- nrow(d)
+  
+  # Prepare data for the single run
+  tab <- tibble(obs = sort(d$logp, decreasing = TRUE)) %>%
+    mutate(
+      i = row_number(), 
+      exp = -log10((i - 0.5) / n),
+      lo = -log10(qbeta(0.975, i, n - i + 1)), 
+      hi = -log10(qbeta(0.025, i, n - i + 1))
+    ) %>%
+    filter(obs >= 2 | row_number() %% 20 == 0) %>%
+    mutate(run = sprintf("%s (lambda = %.2f)", run_name, lambda_gc(d)))
+  
+  # Generate the plot
+  ggplot() +
+    geom_ribbon(data = tab, aes(x = exp, ymin = lo, ymax = hi), fill = "grey85") +
+    geom_abline(slope = 1, intercept = 0) +
+    geom_point(data = tab, aes(x = exp, y = obs, colour = run), size = 0.8) +
+    labs(
+      x = expression(Expected~-log[10](italic(p))), 
+      y = expression(Observed~-log[10](italic(p))), 
+      colour = NULL
+    ) +
+    coord_equal() +
+    theme_classic(base_size = 13) +
+    theme(legend.position = "bottom", legend.direction = "vertical")
+}
+

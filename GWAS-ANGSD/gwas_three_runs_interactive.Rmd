@@ -10,22 +10,24 @@ knitr::opts_chunk$set(message = FALSE, warning = FALSE, fig.width = 8, fig.heigh
 Run the chunks in order. Set your paths and trait in the next chunk, run it, then run everything below it.
 
 ```{r settings}
-WORKDIR     <- "."
-ANGSD       <- "~/angsd/angsd"
-BEAGLE      <- "WL2_2025_Stor_combined.beagle.gz"
-FAI         <- "YO_2_1.fa.fai"
-PCANGSD_COV <- "pcangsd_result/WL2_2025.cov"      # plant x plant covariance from PCAngsd
-PHENO       <- "gwas/height.txt"                  # one value per plant, beagle order, -999 = missing
+WORKDIR     <- "" # Set this to your working directory, and ideally put the full path
+ANGSD       <- "/analyzed_data/GWAS_workshop/angsd/angsd"
+BEAGLE      <- "/analyzed_data/GWAS_workshop/data/WL2_2025_Stor_combined.beagle.gz"
+FAI         <- "/analyzed_data/GWAS_workshop/data/YO_2_1.fa.fai"
+PCANGSD_COV <- "./data/WL2_2025.cov"      # plant x plant covariance from PCAngsd
+PHENO       <- "data/height.txt"                  # one value per plant, beagle order, -999 = missing
 TRAIT       <- "height"
 OUTDIR      <- "gwas"
 N_PC        <- 10
-THREADS     <- 7
+THREADS     <- 8
 CHROMS      <- NULL                               # NULL = all chromosomes in the results
 RUN_ANGSD   <- FALSE                              # TRUE to run ANGSD, FALSE to only print the commands
+METADATA    <- "data/metadata_combined.tsv" 
 
-source("gwas_helpers.R")
 setwd(WORKDIR)
+source("gwas_helpers.R")
 dir.create(OUTDIR, showWarnings = FALSE, recursive = TRUE)
+library(ggrepel)
 ```
 
 # Three runs
@@ -45,13 +47,39 @@ The phenotype and the covariance matrix must list plants in the same order as th
 ```{r inputs}
 y <- as.numeric(readLines(PHENO))
 y[y == -999] <- NA
+metadata <- read_tsv(METADATA)
 
 C   <- unname(as.matrix(read.table(PCANGSD_COV)))
-eig <- eigen(C, symmetric = TRUE)
+eig <- eigen(C)
+eigenval <- eig$values
+eigenvec <- eig$vectors
+paste0("PC",1:ncol(eigenvec)) -> colnames(eigenvec)
 
-n_beagle <- (length(strsplit(readLines(gzfile(BEAGLE), n = 1), "\t")[[1]]) - 3) / 3
-stopifnot(length(y) == nrow(C), length(y) == n_beagle)
-c(plants = length(y), with_phenotype = sum(!is.na(y)))
+pca.res = data.frame(metadata, eigenvec[,1:10])
+
+pop_summary = pca.res |>
+group_by(Type, pop.id) |>
+summarize(across(starts_with("PC"), mean, na.rm = TRUE))
+
+pve = data.frame(PC = 1:ncol(eigenvec), pve = eigenval/sum(eigenval)*100)
+
+```
+
+Let's plot the PCA
+
+```{r}
+
+pca.res |>
+ggplot(aes(PC1, PC2, colour = Type, label = pop.id)) +
+geom_point(size = 3, alpha = 0.5) +
+geom_text_repel(data = pop_summary, aes(x = PC1, y = PC2, label = pop.id), fontface = "bold", size = 3,
+nudge_x = 0.0025, nudge_y = 0.0025) +
+scale_colour_discrete(guide="none")+
+theme_minimal()+
+theme(panel.background = element_rect(fill = "white")) +
+labs(x = paste0("PC1 (", signif(pve$pve[1], 2), "%)"), y = paste0("PC2 (", signif(pve$pve[2], 2), "%)"),
+title = "PCA WL2 2025")
+
 ```
 
 We rank-transform the trait to a normal distribution so a few extreme plants cannot drive a hit. PCs are scaled to mean 0 and sd 1.
@@ -63,13 +91,24 @@ y_int[ok] <- qnorm((rank(y[ok]) - 0.5) / sum(ok))
 
 pcs <- scale(eig$vectors[, 1:N_PC])
 
-write_pheno <- function(x, file) writeLines(ifelse(is.na(x), "-999", sprintf("%.6f", x)), file)
 write_pheno(y_int, file.path(OUTDIR, paste0(TRAIT, "_int.txt")))
 write.table(round(pcs, 6), file.path(OUTDIR, paste0("pcs", N_PC, ".txt")), row.names = FALSE, col.names = FALSE)
 
 hist(y, breaks = 30, main = TRAIT, xlab = TRAIT)
+hist(y_int, breaks = 30, main = TRAIT, xlab = TRAIT)
 ```
 
+Quick plot to check the plant Type affecting height
+
+```{r}
+metadata$height <- y
+
+metadata |>
+ggplot(aes(x = Type, y = log2(height))) +
+geom_boxplot(outlier.shape = NA) +
+geom_jitter(width = 0.1) +
+theme_minimal()
+```
 # rrBLUP residual
 
 The model is y = Xb + u + e. X is an intercept plus the PCs, u is a random effect with covariance Vu * K, where K is the PCAngsd matrix, and e is noise with variance Ve. We keep e as the new phenotype. A small value on the diagonal of K keeps it invertible.
@@ -90,6 +129,26 @@ c(Vu = fit$Vu, Ve = fit$Ve, share_relatedness = fit$Vu / (fit$Vu + fit$Ve))
 ```
 
 `share_relatedness` is the part of the trait variance that follows relatedness after the PCs. Run 3 cannot map that part. The PC covariates stay in run 3 so the main ancestry axes are removed from the genotype side too.
+
+Also create another phenotype file for just the F2s. Simply set the phenotype to -999 for all other types
+
+```{r}
+f2 = metadata$Type == "F2"
+X_f2 <- cbind(1, pcs)[ok&f2, ]
+K_f2 <- C[ok&f2, ok&f2] + diag(1e-6, sum(ok&f2))
+
+y_f2     <- rep(NA_real_, length(y))
+y_f2[ok&f2] <- qnorm((rank(y[ok&f2]) - 0.5) / sum(ok&f2))
+
+fit_f2 <- rrBLUP::mixed.solve(y_f2[ok&f2], X = X_f2, K = K_f2)
+res_f2 <- y_f2[ok&f2] - as.numeric(X_f2 %*% as.numeric(fit_f2$beta)) - as.numeric(fit_f2$u)
+stopifnot(all(is.finite(res_f2)))
+
+y_resid_f2     <- rep(NA_real_, length(y))
+y_resid_f2[ok&f2] <- as.numeric(scale(res_f2))
+write_pheno(y_resid_f2, file.path(OUTDIR, paste0(TRAIT, "_rrblup_resid_f2.txt")))
+
+```
 
 # ANGSD
 
@@ -137,8 +196,8 @@ iwalk(runs, function(d, nm) {
   p <- plot_qq(runs[nm]) +
     ggtitle(sprintf("%s: lambda = %.2f", nm, lambda_gc(d))) +
     theme(legend.position = "none")
-  ggsave(file.path(OUTDIR, paste0(TRAIT, "_qq_", gsub(" ", "_", nm), ".png")), p, width = 5, height = 5, dpi = 300)
-  print(p)
+  ggsave(file.path(OUTDIR, paste0(TRAIT, "_qq_", gsub(" ", "_", nm), ".png")), p, width = 5, height = 5, dpi = 100)
+  #print(p)
 })
 ```
 
@@ -147,8 +206,26 @@ A calibrated run follows the diagonal and lifts off only at the far right. A run
 ```{r manhattan, fig.width = 10, fig.height = 4}
 iwalk(runs, function(d, nm) {
   p <- plot_manhattan(d, lay, title = nm)
-  ggsave(file.path(OUTDIR, paste0(TRAIT, "_manhattan_", gsub(" ", "_", nm), ".png")), p, width = 10, height = 4, dpi = 300)
-  print(p)
+  ggsave(file.path(OUTDIR, paste0(TRAIT, "_manhattan_", gsub(" ", "_", nm), ".png")), p, width = 10, height = 4, dpi = 200)
+  #print(p)
 })
 ```
 The red line is Bonferroni at 5%. A peak that holds in all three runs does not depend on how structure was handled. A peak that is only in run 1 is ancestry. A peak that is in run 2 and gone in run 3 could be fine-scale structure, or real signal absorbed by the mixed model. Check how much of the trait the PCs and relatedness explain before deciding which.
+
+Let's see the F2 only result as well
+
+```{r}
+f2_res = read_lrt("gwas/height_f2.lrt0.gz")
+lambda_f2 = lambda_gc(f2_res)
+print(lambda_f2)
+#Plot the qq
+
+p <- plot_qq1(f2_res, run_name = "F2") +
+    ggtitle(sprintf("F2 only: lambda = %.2f", lambda_f2)) +
+    theme(legend.position = "none")
+  ggsave(file.path(OUTDIR, paste0(TRAIT, "_qq_F2", ".png")), p, width = 5, height = 5, dpi = 100)
+
+p <- plot_manhattan(f2_res, lay, title = "F2")
+  ggsave(file.path(OUTDIR, paste0(TRAIT, "_manhattan_F2", ".png")), p, width = 10, height = 4, dpi = 200)
+
+```
