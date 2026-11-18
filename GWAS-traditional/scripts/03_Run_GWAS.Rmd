@@ -56,9 +56,15 @@ Compute Leave One Chromosome Out (LOCO) Kinship Matrices Using Strictly Pruned S
 ```{r, eval = FALSE}
 pruned_kin_snps <- readLines("WL2_2025_snps_for_kin_pca.txt")
 chroms <- sort(unique(geno$map$chr))
-loco_kin_list <- list()
 
-for (chr in chroms) {
+library(foreach)
+library(doParallel)
+
+# Forked workers share geno, but each copies its marker subset; keep cores modest for memory
+registerDoParallel(cores = 8)
+
+loco_kin_list <- foreach(chr = chroms, .final = function(x) setNames(x, as.character(chroms))) %dopar% {
+  cat("starting chrom ", chr, "\n")
   # Select SNPs NOT on the current chromosome
   snps_other_chrs <- rownames(geno$map)[geno$map$chr != chr]
   
@@ -66,11 +72,13 @@ for (chr in chroms) {
   snps_to_use <- intersect(snps_other_chrs, pruned_kin_snps)
   
   # Compute VanRaden kinship matrix for this chromosome
-  loco_kin_list[[as.character(chr)]] <- kinship(
+  kinship(
     X = geno$markers[, snps_to_use],
     method = "vanRaden"
   )
 }
+
+stopImplicitCluster()
 
 # Attach the named list of LOCO kinship matrices to geno
 geno <- createGData(gData = geno, kin = loco_kin_list)

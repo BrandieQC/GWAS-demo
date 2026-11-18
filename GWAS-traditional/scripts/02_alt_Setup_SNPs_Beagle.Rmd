@@ -109,14 +109,14 @@ plink1.9 --merge-list plink_merge_list.txt \
 
 # 3. Create  final GWAS PLINK dataset containing only the r2 <= 0.81 SNPs
 plink1.9 --bfile WL2_2025_all_merged_plink \
-         --extract snps_for_gwas.txt \
+         --extract WL2_2025_snps_for_gwas.txt \
          --make-bed \
          --allow-extra-chr \
          --out WL2_2025_final_gwas_plink
 
 # 4. Run PCA using only the strict r2 <= 0.2 SNPs
 plink1.9 --bfile WL2_2025_all_merged_plink \
-         --extract snps_for_kin_pca.txt \
+         --extract WL2_2025_snps_for_kin_pca.txt \
          --pca 10 \
          --allow-extra-chr \
          --out WL2_2025_gwas_pca
